@@ -1,0 +1,2 @@
+stl-reader>=0.2.1
+filedialpy>=1.2.0
