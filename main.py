@@ -52,6 +52,7 @@ class Mesh:
         mesh += sep.join(
             map(str, map(lambda v: sep.join(map(str, v.tuple)), self.vertices))
         )
+        mesh += sep
         return mesh
 
     def to_cpp_str(self) -> str:
