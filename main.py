@@ -1,6 +1,41 @@
-import filedialpy
+import easygui
 import os
 import re
+import platformdirs
+import json
+
+_cache_dir = platformdirs.user_cache_dir(
+    appname="obj-exporter",
+    appauthor="francescozoccheddu",
+    version="0.1",
+    ensure_exists=True,
+)
+_memo_filepath = os.path.join(_cache_dir, "memo.json")
+_memo = None
+
+
+def _init_memo() -> None:
+    global _memo
+    if _memo is None:
+        if os.path.isfile(_memo_filepath):
+            with open(_memo_filepath, "r") as file:
+                _memo = json.load(file)
+        else:
+            _memo = {}
+
+
+def _memorize(key: str, value: str) -> None:
+    _init_memo()
+    global _memo
+    _memo[key] = value
+    with open(_memo_filepath, "w") as file:
+        json.dump(_memo, file)
+
+
+def _recall(key: str, default: str | None = None) -> str | None:
+    global _memo
+    _init_memo()
+    return _memo.get(key, default)
 
 
 class Vec:
@@ -148,17 +183,24 @@ def read_obj_file(filepath: str) -> dict[str, Mesh]:
 
 
 def run_gui() -> bool:
-    in_filepath = filedialpy.openFile(
-        title="Choose the STL file to import", filter=["*.obj"]
+    in_filepath = easygui.fileopenbox(
+        title="Import OBJ",
+        msg="Choose the OBJ file to import",
+        filetypes=["*.obj"],
+        default=_recall("in_filepath"),
     )
-    if in_filepath == "":
+    if in_filepath is None:
         return False
+    _memorize("in_filepath", in_filepath)
     meshes = read_obj_file(in_filepath)
-    out_dirpath = filedialpy.openDir(
-        title="Choose the mesh directory in which to export", filter=["*.mesh"]
+    out_dirpath = easygui.diropenbox(
+        title="Export meshes",
+        msg="Choose the directory in which to export the meshes",
+        default=_recall("out_dirpath"),
     )
-    if out_dirpath == "":
+    if out_dirpath is None:
         return False
+    _memorize("out_dirpath", out_dirpath)
     for name, mesh in meshes.items():
         basename = name
         out_filepath = os.path.join(out_dirpath, f"{basename}.mesh")

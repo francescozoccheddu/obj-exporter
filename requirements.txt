@@ -1,1 +1,2 @@
-filedialpy>=1.2.0
+easygui>=0.98.3
+platformdirs>=4.3.6
