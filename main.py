@@ -1,5 +1,6 @@
-import stl_reader
 import filedialpy
+import os
+import re
 
 
 class Vec:
@@ -22,18 +23,49 @@ class Vec:
         self._z
 
     @property
-    def tuple(self) -> tuple[float, float, float]:
+    def float_tuple(self) -> tuple[float, float, float]:
         return self._x, self._y, self._z
+
+    def __hash__(self) -> int:
+        return hash(self.float_tuple)
+
+    def __eq__(self, value: object) -> bool:
+        return isinstance(value, Vec) and self.float_tuple == value.float_tuple
+
+
+class Vertex:
+
+    def __init__(self, pos: Vec, norm: Vec) -> None:
+        self._pos = pos
+        self._norm = norm
+
+    @property
+    def pos(self):
+        return self._pos
+
+    @property
+    def norm(self):
+        return self._norm
+
+    @property
+    def float_tuple(self) -> tuple[float, float, float]:
+        return *self._pos.float_tuple, *self._norm.float_tuple
+
+    def __hash__(self) -> int:
+        return hash(self.float_tuple)
+
+    def __eq__(self, value: object) -> bool:
+        return isinstance(value, Vertex) and self.float_tuple == value.float_tuple
 
 
 class Mesh:
 
-    def __init__(self, vertices: list[Vec], indices: list[int]) -> None:
+    def __init__(self, vertices: list[Vertex], indices: list[int]) -> None:
         self._vertices = vertices
         self._indices = indices
 
     @property
-    def vertices(self) -> list[Vec]:
+    def vertices(self) -> list[Vertex]:
         return self._vertices
 
     @property
@@ -50,7 +82,7 @@ class Mesh:
         mesh += str(len(self.vertices))
         mesh += sep
         mesh += sep.join(
-            map(str, map(lambda v: sep.join(map(str, v.tuple)), self.vertices))
+            map(str, map(lambda v: sep.join(map(str, v.float_tuple)), self.vertices))
         )
         mesh += sep
         return mesh
@@ -59,27 +91,79 @@ class Mesh:
         raise NotImplementedError()
 
 
-def read_stl_file(filepath: str) -> Mesh:
-    in_verts, in_inds = stl_reader.read(filepath)
-    out_verts = [Vec(*v) for v in in_verts]
-    out_inds = [i for in_tri_inds in in_inds for i in in_tri_inds]
-    return Mesh(out_verts, out_inds)
+def read_obj_file(filepath: str) -> dict[str, Mesh]:
+    with open(filepath, "r") as file:
+        lines = file.readlines()
+    command_re = re.compile("(?P<cmd>v|vn|f|o) (?P<data>.*)")
+    vec_re = re.compile("(?P<x>[^\\s]+) (?P<y>[^\\s]+) (?P<z>[^\\s]+)")
+    ind_re = re.compile(
+        "(?P<p0>\\d+)//(?P<n0>\\d+) (?P<p1>\\d+)//(?P<n1>\\d+) (?P<p2>\\d+)//(?P<n2>\\d+)"
+    )
+    meshes = {}
+    mesh = None
+    positions = []
+    normals = []
+    for line in lines:
+        matches = command_re.search(line)
+        if matches is not None:
+            cmd = matches["cmd"]
+            data = matches["data"]
+            if cmd == "o":
+                meshes[data] = mesh = {
+                    "position_indices": [],
+                    "normal_indices": [],
+                }
+            elif cmd == "f":
+                ind = ind_re.search(data).groupdict()
+                mesh["position_indices"].extend(
+                    [int(ind[k]) - 1 for k in ["p0", "p1", "p2"]]
+                )
+                mesh["normal_indices"].extend(
+                    [int(ind[k]) - 1 for k in ["n0", "n1", "n2"]]
+                )
+            elif cmd in ["v", "vn"]:
+                vec = vec_re.search(data).groupdict()
+                if cmd == "v":
+                    buffer = positions
+                else:
+                    buffer = normals
+                buffer.append([float(vec[k]) for k in ["x", "y", "z"]])
+
+    def linearize_mesh(mesh: dict[str, list]) -> Mesh:
+        vertices = []
+        indices = []
+        vertex_map = {}
+        for pi_1b, ni_1b in zip(mesh["position_indices"], mesh["normal_indices"]):
+            vertex = Vertex(Vec(*positions[pi_1b]), Vec(*normals[ni_1b]))
+            vi = vertex_map.get(vertex)
+            if vi is None:
+                vi = len(vertices)
+                vertex_map[vertex] = vi
+                vertices.append(vertex)
+            indices.append(vi)
+
+        return Mesh(vertices, indices)
+
+    return {name: linearize_mesh(mesh) for name, mesh in meshes.items()}
 
 
 def run_gui() -> bool:
     in_filepath = filedialpy.openFile(
-        title="Choose the STL file to import", filter=["*.stl"]
+        title="Choose the STL file to import", filter=["*.obj"]
     )
     if in_filepath == "":
         return False
-    mesh = read_stl_file(in_filepath)
-    out_filepath = filedialpy.saveFile(
-        title="Choose the mesh file to export", filter=["*.mesh"]
+    meshes = read_obj_file(in_filepath)
+    out_dirpath = filedialpy.openDir(
+        title="Choose the mesh directory in which to export", filter=["*.mesh"]
     )
-    if out_filepath == "":
+    if out_dirpath == "":
         return False
-    with open(out_filepath, "w") as out_file:
-        out_file.write(mesh.to_mesh_str())
+    for name, mesh in meshes.items():
+        basename = name
+        out_filepath = os.path.join(out_dirpath, f"{basename}.mesh")
+        with open(out_filepath, "w") as out_file:
+            out_file.write(mesh.to_mesh_str())
     return True
 
 
